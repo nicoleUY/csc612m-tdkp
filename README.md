@@ -1,19 +1,28 @@
 # CSC612M-TDKP Integrating Project
 
 ## Time Dependent Knapsack Problem with Irregular Availability
+Time-dependent knapsack problem (TDKP) with irregular availability is a variant of the classic 0/1 knapsack problem. 
+INPUTS:
+- knapsack capacity
+- time horizon
+- list of items
+  - price (profit or value)
+  - demand (weight or cost)
+  - availability interval (time window)
+ 
+GOAL: maximize profit while staying within the knapsack's capacity at every time step.
 
 ## Discussion of Algorithms implemented in your program
 
 ### Brute force
 
-### DP on CPU
-
-### DP on GPU
-
 ### SA on CPU
 
 ### SA on GPU
 highlight which part of the sequential part is converted to parallel algo
+
+### Other attemps
+talk about DP
 
 ## Execution time comparison
 <insert screenshot>
