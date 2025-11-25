@@ -43,7 +43,7 @@ Some optimizations we implemented include:
 - Single-threaded demand accumulation using a prefix-array style computation
 - Kernel synchronization to alternate between single-threaded and multithreaded phases
 - Allowing knapsack demand to temporarily exceed capacity using a penalty term (configurable), reducing branch divergence
-- Final correction of violations on the CPU (using the CPU baseline) due to excessive branching on the GPU
+- Final correction of violations on the CPU (using the CPU baseline) due to excessive branching that is slow in the GPU
 
 ### Linear Programming (LP) as a Benchmark
 This implementation uses OR-Tools, Google’s open-source optimization library. It acts as a ground-truth solver, allowing us to measure how close the heuristic solutions are to those from a mature linear programming engine.
