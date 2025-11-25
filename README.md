@@ -15,8 +15,14 @@ Time-dependent knapsack problem (TDKP) with irregular availability is a variant 
 
 The classical knapsack problem is NP-hard, meaning there are no known polynomial-time algorithms for guaranteed optimal solutions. Since TDKP is a variation of the 0/1 knapsack problem, it is also NP-hard. A pseudo-polynomial dynamic programming (DP) solution exists for the standard knapsack problem, but its DP formulation does not work for our instance, where items have to be removed from the knapsack. 
 
+## Files
+- `knapsack.cu`: Simulated Annealing implementation (both CPU and GPU)
+- `Testcase Generator.ipynb`: Testcase generator
+- `test-cases/`: Directory containing the test cases that were used
+- `CSC612M Integrating Project Video.mp4`: Video presentation
+- `CSC612M Integrating Project Slides.pdf`: Video presentation slides
 
-## Discussion of Algorithms implemented in your program
+## Discussion of Algorithms implemented
 
 ### Brute force
 Our brute-force implementation serves as the baseline for correctness. It enumerates all 2^𝑛
