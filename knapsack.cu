@@ -281,7 +281,6 @@ int main() {
     }
     
 
-    double first_run = 0;
     double total = 0;
     
     size_t instances = SIMULATED_ANNEALING_INSTANCES;
@@ -294,9 +293,11 @@ int main() {
         auto end = chrono::system_clock::now();
 
         auto ms = chrono::duration_cast<chrono::nanoseconds>(end - start).count() / 1e6;
+        /*
         if(i == 0) {
             first_run = ms;
         }
+        */
         total += ms;
 
         cpu_output[i] = r;
@@ -305,8 +306,10 @@ int main() {
         // cout << "run took " << ms << endl;
         
     }
-    cout << instances << " simulated annealing instances of n = " << n << " took " << setprecision(6) << total << " ms" << endl;
-    cout << "max obtained result is " << mx << endl;
+    cout << "CPU SA:  " << instances
+     << " instances (n = " << n << ") took "
+     << fixed << setprecision(6) << total << " ms\n"
+     << "Max result: " << mx << "\n\n";
     //return;
 
     
@@ -319,7 +322,7 @@ int main() {
     const size_t num_blocks = ceil_div(instances, num_threads);
 
     size_t instances_rounded_up = num_threads * num_blocks;
-    cout << instances_rounded_up << endl;
+    //cout << instances_rounded_up << endl;
     cudaMalloc(&demand_change, instances_rounded_up * (max_time + 3) * sizeof(int));
     cudaMalloc(&tmp, instances_rounded_up * workers * sizeof(int));
 
@@ -375,6 +378,8 @@ int main() {
     auto end = chrono::system_clock::now();
 
     auto ms = chrono::duration_cast<chrono::nanoseconds>(end - start).count() / 1e6;
-    cout << instances << " CUDA simulated annealing instances of n = " << n << " took " << setprecision(6) << ms << " ms" << endl;
-    cout << "max obtained result is " << mx << endl;
+    cout << "GPU SA:  " << instances
+     << " instances (n = " << n << ") took "
+     << fixed << setprecision(3) << ms << " ms\n"
+     << "Max result: " << mx << "\n";
 }
