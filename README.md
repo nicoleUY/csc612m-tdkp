@@ -25,7 +25,8 @@ highlight which part of the sequential part is converted to parallel algo
 talk about DP
 
 ## Execution time comparison
-<insert screenshot>
+<img width="472" height="728" alt="image" src="https://github.com/user-attachments/assets/8e92e137-21cc-4e54-b67b-69f5b35eaf72" />
+
 
 **Execution Time**
 | n    | SA (CPU)  | SA (GPU)  | SPEEDUP |
