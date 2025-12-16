@@ -345,7 +345,7 @@ int main() {
     
     
     cudaMemLocation memLocation;
-    memLocation.id = cudaCpuDeviceId;
+    memLocation.type = cudaMemLocationTypeHost;
     cudaMemPrefetchAsync(candidate_selected, instances_rounded_up * n * sizeof(bool), memLocation, NULL);
 
     // cpu stage
