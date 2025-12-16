@@ -180,10 +180,10 @@ int knapsack_simulated_annealing_CPP_kernel(int id, int max_time, int knapsack_c
         double prob = exp((cur_profit-optimal)/T);
         if(random_float(seed++) < prob) {
             optimal = cur_profit;
-            selected = candidate_selected;
+            selected[target] = candidate_selected[target];
             selected_count = candidate_selected_count;
         } else {
-            candidate_selected = selected;
+            candidate_selected[target] = selected[target];
             candidate_selected_count = selected_count;
         }
 
@@ -216,8 +216,9 @@ void knapsack_simulated_annealing_CUDA_kernel(int n, int max_time, int knapsack_
 
     double T = SIMULATED_ANNEALING_INITIAL_TEMPERATURE;
     for(int i = 0; i < SIMULATED_ANNEALING_ITERATIONS; i++) {
+        int target;
         if(threadIdx.y == 0) {
-            int target = random_index(seed++, n) * stride + iteration_id;
+            target = random_index(seed++, n) * stride + iteration_id;
             bool cur_val = candidate_selected[target];
             candidate_selected[target] = !candidate_selected[target];
             candidate_selected_count += !cur_val;
@@ -232,21 +233,17 @@ void knapsack_simulated_annealing_CUDA_kernel(int n, int max_time, int knapsack_
             cur_profit = check_profit_CUDA(stride, iteration_id, n, max_time, knapsack_capacity, violation_cost, demand_change, items, candidate_selected, tmp);
             double prob = exp((cur_profit-optimal)/T);
             tmp[iteration_id * blockDim.y] = random_float(seed++) < prob; // whether accept
-        }
-        __syncthreads();
 
-        if(tmp[iteration_id * blockDim.y]) { // whether accept
-            optimal = cur_profit;
-            for(int i = threadIdx.y; i < n; i += blockDim.y) { // accept changes
-                selected[i * stride + iteration_id] = candidate_selected[i * stride + iteration_id];
+            if(tmp[iteration_id * blockDim.y]) { // whether accept
+                optimal = cur_profit;
+                selected[target] = candidate_selected[target];
+                selected_count = candidate_selected_count;
+            } else {
+                candidate_selected[target] = selected[target];
+                candidate_selected_count = selected_count;
             }
-            selected_count = candidate_selected_count;
-        } else {
-            for(int i = threadIdx.y; i < n; i += blockDim.y) { // undo changes
-                candidate_selected[i * stride + iteration_id] = selected[i * stride + iteration_id];
-            }
-            candidate_selected_count = selected_count;
         }
+        
         T *= SIMULATED_ANNEALING_COOLING_RATE;
         __syncthreads();
     }
