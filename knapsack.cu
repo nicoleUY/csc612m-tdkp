@@ -190,7 +190,7 @@ int knapsack_simulated_annealing_CPP_kernel(int id, int max_time, int knapsack_c
         T *= SIMULATED_ANNEALING_COOLING_RATE;
     }
 
-    int seed2 = 0;
+    uint64_t seed2 = id * (16 * SIMULATED_ANNEALING_ITERATIONS);
     while(true) {
         optimal = check_profit_CPP(max_time, knapsack_capacity, items, candidate_selected, true);
         if(optimal < 0) {
@@ -357,7 +357,7 @@ int main() {
         }
         
         int output;
-        int seed2 = 0;
+        uint64_t seed2 = i * (16 * SIMULATED_ANNEALING_ITERATIONS);
         while(true) {
             output = check_profit_CPP(max_time, m, items, candidate_selected_cpu, true);
             if(output < 0) {
