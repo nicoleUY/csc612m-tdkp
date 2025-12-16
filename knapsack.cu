@@ -151,12 +151,12 @@ __device__ int check_profit_CUDA(int sa_instances, int iteration_id, int n, int 
 /*
     Simulated annealing parameters from https://cp-algorithms.com/num_methods/simulated_annealing.html
 */
-#define SIMULATED_ANNEALING_ITERATIONS 1830 // cp-algs suggests -log_u(T) but this can be changed
-#define SIMULATED_ANNEALING_INITIAL_TEMPERATURE 10000
+#define SIMULATED_ANNEALING_ITERATIONS 16000 // cp-algs suggests -log_u(T) but this can be changed
+#define SIMULATED_ANNEALING_INITIAL_TEMPERATURE 100000
 #define SIMULATED_ANNEALING_COOLING_RATE 0.995
 #define SIMULATED_ANNEALING_EXCESS_ITEM_PENALTY 10 // amount of price to subtract per excess unit demand
-#define SIMULATED_ANNEALING_INSTANCES 400
-#define WORKERS_PER_INSTANCE 64
+#define SIMULATED_ANNEALING_INSTANCES 200
+#define WORKERS_PER_INSTANCE 128
 
 int knapsack_simulated_annealing_CPP_kernel(int id, int max_time, int knapsack_capacity, vector<item> &items) {
     vector<bool> selected(items.size()), candidate_selected(items.size());
