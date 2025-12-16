@@ -156,7 +156,7 @@ __device__ int check_profit_CUDA(int sa_instances, int iteration_id, int n, int 
 #define SIMULATED_ANNEALING_COOLING_RATE 0.995
 #define SIMULATED_ANNEALING_EXCESS_ITEM_PENALTY 10 // amount of price to subtract per excess unit demand
 #define SIMULATED_ANNEALING_INSTANCES 400
-#define WORKERS_PER_INSTANCE 32
+#define WORKERS_PER_INSTANCE 64
 
 int knapsack_simulated_annealing_CPP_kernel(int id, int max_time, int knapsack_capacity, vector<item> &items) {
     vector<bool> selected(items.size()), candidate_selected(items.size());
