@@ -117,6 +117,20 @@ int check_profit_CPP(int max_time, int knapsack_capacity, vector<int> &demand_ch
 
 __device__ int check_profit_CUDA(int sa_instances, int iteration_id, int n, int max_time, int knapsack_capacity, int violation_cost, int *demand_change, int *prefix_sum) {
     // optimized prefix sum implementation
+    int tid = threadIdx.y;
+    
+#if 0
+    if(tid == 0) {
+        for(int t = 0; t <= max_time; t++){
+            prefix_sum[t * sa_instances + iteration_id] = demand_change[t * sa_instances + iteration_id];
+            if(t > 0) {
+                prefix_sum[t * sa_instances + iteration_id] += prefix_sum[(t - 1) * sa_instances + iteration_id];
+            }
+        }
+        prefix_sum[(max_time + 1) * sa_instances + iteration_id] = 0;
+    }
+    __syncthreads();
+#else
     for(int t = threadIdx.y; t <= max_time; t += blockDim.y) {
         prefix_sum[t * sa_instances + iteration_id] = demand_change[t * sa_instances + iteration_id];
     }
@@ -136,7 +150,6 @@ __device__ int check_profit_CUDA(int sa_instances, int iteration_id, int n, int 
         __syncthreads();
     }
 
-    int tid = threadIdx.y;
     if(tid == 0) {
         prefix_sum[(max_time + 1) * sa_instances + iteration_id] = prefix_sum[max_time * sa_instances + iteration_id];
         prefix_sum[max_time * sa_instances + iteration_id] = 0;
@@ -161,20 +174,31 @@ __device__ int check_profit_CUDA(int sa_instances, int iteration_id, int n, int 
         dist_to_prv >>= 1;
         __syncthreads();
     }
+#endif
 
-    __shared__ int tmp[WORKERS_PER_INSTANCE];
+#if 0
+    int max_violation = 0;
+    if(tid == 0) {
+        for(int t = 0; t <= max_time + 1; t++){
+            max_violation = max(max_violation, prefix_sum[t * sa_instances + iteration_id] - knapsack_capacity);
+        }
+    }
+#else
+    __shared__ int tmp[1024];
     int max_violation = 0;
     for(int t = threadIdx.y; t <= max_time + 1; t += blockDim.y) {
         max_violation = max(max_violation, prefix_sum[t * sa_instances + iteration_id] - knapsack_capacity);
     }
-    tmp[tid] = max_violation;
+    tmp[threadIdx.x + threadIdx.y * blockDim.x] = max_violation;
     __syncthreads();
-    
+
+
     if(tid == 0) {
         for(int i = 0; i < blockDim.y; i++) {
-            max_violation = max(max_violation, tmp[i]);
+            max_violation = max(max_violation, tmp[threadIdx.x + i * blockDim.x]);
         }
     }
+#endif
 
     return -max_violation * violation_cost;
 }
@@ -200,7 +224,7 @@ int knapsack_simulated_annealing_CPP_kernel(int id, int max_time, int knapsack_c
         demand_change[items[target].r + 1] -= delta * items[target].demand;
         cur_profit += delta * items[target].price;
 
-        int adjusted_profit = cur_profit - check_profit_CPP(max_time, knapsack_capacity, demand_change, false);
+        int adjusted_profit = cur_profit + check_profit_CPP(max_time, knapsack_capacity, demand_change, false);
 
         double prob = exp((adjusted_profit-optimal)/T);
         if(random_float(seed++) < prob) {
@@ -239,7 +263,7 @@ __global__
 void knapsack_simulated_annealing_CUDA_kernel(int n, int max_time, int knapsack_capacity, int violation_cost, int *demand_change, int *prefix_sum, const item * __restrict__ items, bool *selected, bool *candidate_selected) {
     int iteration_id = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
-
+    
     uint64_t seed = iteration_id * (16 * SIMULATED_ANNEALING_ITERATIONS);
     int optimal = 0;
     
@@ -267,7 +291,6 @@ void knapsack_simulated_annealing_CUDA_kernel(int n, int max_time, int knapsack_
             cur_profit += delta * selected_item.price;
         }
         __syncthreads();
-
 
         int adjusted_profit = cur_profit + check_profit_CUDA(stride, iteration_id, n, max_time, knapsack_capacity, violation_cost, demand_change, prefix_sum);
         if(threadIdx.y == 0) {
@@ -410,8 +433,8 @@ int main() {
         while(check_profit_CPP(max_time, m, demand_change, true) == -1) {
             while(true) {
                 int item_to_remove = random_index(seed2++, items.size());
-                if(candidate_selected[item_to_remove]) {
-                    candidate_selected[item_to_remove] = false;
+                if(candidate_selected_cpu[item_to_remove]) {
+                    candidate_selected_cpu[item_to_remove] = false;
                     
                     demand_change[items[item_to_remove].l] -= items[item_to_remove].demand;
                     demand_change[items[item_to_remove].r + 1] += items[item_to_remove].demand;
@@ -422,7 +445,7 @@ int main() {
         }
 
         if(true && cpu_output[i] != cur_profit) {
-            cout << "detected error\n";
+            cout << "detected error expect: " << cpu_output[i] << " got " << cur_profit << "\n";
         }
         //cout << "simulated annealing CUDA returned: " << output << endl;
         mx = max(mx, cur_profit);
