@@ -262,8 +262,8 @@ void knapsack_simulated_annealing_CUDA_kernel(int n, int max_time, int knapsack_
             candidate_selected_count += delta;
             candidate_selected_count -= delta;
 
-            atomicAdd(&demand_change[selected_item.l       * stride + iteration_id],  delta * selected_item.demand);
-            atomicAdd(&demand_change[(selected_item.r + 1) * stride + iteration_id], -delta * selected_item.demand);
+            demand_change[selected_item.l       * stride + iteration_id] += delta * selected_item.demand;
+            demand_change[(selected_item.r + 1) * stride + iteration_id] -= delta * selected_item.demand;
             cur_profit += delta * selected_item.price;
         }
         __syncthreads();
@@ -280,8 +280,8 @@ void knapsack_simulated_annealing_CUDA_kernel(int n, int max_time, int knapsack_
                 candidate_selected[target] = selected[target];
                 candidate_selected_count = selected_count;
                 cur_profit -= delta * selected_item.price;
-                atomicAdd(&demand_change[(selected_item.l)     * stride + iteration_id], -delta * selected_item.demand);
-                atomicAdd(&demand_change[(selected_item.r + 1) * stride + iteration_id], +delta * selected_item.demand);
+                demand_change[(selected_item.l)     * stride + iteration_id] -= delta * selected_item.demand;
+                demand_change[(selected_item.r + 1) * stride + iteration_id] += delta * selected_item.demand;
             }
         }
         
