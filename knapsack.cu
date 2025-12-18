@@ -96,7 +96,7 @@ struct item {
 #define SIMULATED_ANNEALING_INITIAL_TEMPERATURE 100000
 #define SIMULATED_ANNEALING_COOLING_RATE 0.995
 #define SIMULATED_ANNEALING_EXCESS_ITEM_PENALTY 10 // amount of price to subtract per excess unit demand
-#define SIMULATED_ANNEALING_INSTANCES 512
+#define SIMULATED_ANNEALING_INSTANCES 256
 #define WORKERS_PER_INSTANCE 128
 
 int violation_cost = 0;
@@ -115,7 +115,7 @@ int check_profit_CPP(int max_time, int knapsack_capacity, vector<int> &demand_ch
     return -violation_amt * violation_cost;
 }
 
-__device__ int check_profit_CUDA(int sa_instances, int iteration_id, int n, int max_time, int knapsack_capacity, int violation_cost, int *demand_change, int *prefix_sum, item *items, bool *selected) {
+__device__ int check_profit_CUDA(int sa_instances, int iteration_id, int n, int max_time, int knapsack_capacity, int violation_cost, int *demand_change, int *prefix_sum) {
     // optimized prefix sum implementation
     for(int t = threadIdx.y; t <= max_time; t += blockDim.y) {
         prefix_sum[t * sa_instances + iteration_id] = demand_change[t * sa_instances + iteration_id];
@@ -238,7 +238,7 @@ int knapsack_simulated_annealing_CPP_kernel(int id, int max_time, int knapsack_c
 }
 
 __global__
-void knapsack_simulated_annealing_CUDA_kernel(int n, int max_time, int knapsack_capacity, int violation_cost, int *demand_change, int *prefix_sum, item *items, bool *selected, bool *candidate_selected) {
+void knapsack_simulated_annealing_CUDA_kernel(int n, int max_time, int knapsack_capacity, int violation_cost, int *demand_change, int *prefix_sum, const item * __restrict__ items, bool *selected, bool *candidate_selected) {
     int iteration_id = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
 
@@ -271,7 +271,7 @@ void knapsack_simulated_annealing_CUDA_kernel(int n, int max_time, int knapsack_
         __syncthreads();
 
 
-        int adjusted_profit = cur_profit + check_profit_CUDA(stride, iteration_id, n, max_time, knapsack_capacity, violation_cost, demand_change, prefix_sum, items, candidate_selected);
+        int adjusted_profit = cur_profit + check_profit_CUDA(stride, iteration_id, n, max_time, knapsack_capacity, violation_cost, demand_change, prefix_sum);
         __syncthreads();
         if(threadIdx.y == 0) {
             double prob = exp((adjusted_profit-optimal)/T);
