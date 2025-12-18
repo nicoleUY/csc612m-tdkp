@@ -87,19 +87,20 @@ struct item {
     int demand;
     int l, r;
 };
+
+/*
+    Simulated annealing parameters from https://cp-algorithms.com/num_methods/simulated_annealing.html
+*/
+
+#define SIMULATED_ANNEALING_ITERATIONS 16000 // cp-algs suggests -log_u(T) but this can be changed
+#define SIMULATED_ANNEALING_INITIAL_TEMPERATURE 100000
+#define SIMULATED_ANNEALING_COOLING_RATE 0.995
+#define SIMULATED_ANNEALING_EXCESS_ITEM_PENALTY 10 // amount of price to subtract per excess unit demand
+#define SIMULATED_ANNEALING_INSTANCES 512
+#define WORKERS_PER_INSTANCE 128
+
 int violation_cost = 0;
-int check_profit_CPP(int max_time, int knapsack_capacity, vector<item> &items, vector<bool> &selected, bool disallow_violations) {
-    vector<int> demand_change(max_time + 3);
-        
-    int profit = 0;
-    for(int i = 0; i < items.size(); i++) {
-        if(selected[i]) {
-            demand_change[items[i].l] += items[i].demand;
-            demand_change[items[i].r + 1] -= items[i].demand;
-            profit += items[i].price;
-        }
-    }
-    
+int check_profit_CPP(int max_time, int knapsack_capacity, vector<int> &demand_change, bool disallow_violations) {
     int violation_amt = 0;
     int cur_demand = 0;
     for(int t = 0; t <= max_time; t++) {
@@ -108,83 +109,110 @@ int check_profit_CPP(int max_time, int knapsack_capacity, vector<item> &items, v
             return -1;
         }
         violation_amt = max(violation_amt, cur_demand - knapsack_capacity);
+    
     }
     
-    return profit - violation_amt * violation_cost;
+    return -violation_amt * violation_cost;
 }
 
-__device__ void check_profit_CUDA_setup(int sa_instances, int iteration_id, int n, int max_time, int knapsack_capacity, int violation_cost, int *demand_change, item *items, bool *selected, int *tmp) {
-    int profit = 0;
+__device__ int check_profit_CUDA(int sa_instances, int iteration_id, int n, int max_time, int knapsack_capacity, int violation_cost, int *demand_change, int *prefix_sum, item *items, bool *selected) {
+    // optimized prefix sum implementation
     for(int t = threadIdx.y; t <= max_time; t += blockDim.y) {
-        demand_change[t * sa_instances + iteration_id] = 0;
+        prefix_sum[t * sa_instances + iteration_id] = demand_change[t * sa_instances + iteration_id];
     }
     __syncthreads();
-    
-    for(int i = threadIdx.y; i < n; i += blockDim.y) {
-        if(selected[i * sa_instances + iteration_id]) {
-            atomicAdd(&demand_change[(items[i].l)     * sa_instances + iteration_id], items[i].demand);
-            atomicAdd(&demand_change[(items[i].r + 1) * sa_instances + iteration_id], -items[i].demand);
-            profit += items[i].price;
+
+    int dist_to_prv = 1;
+    int spacing = 2;
+    while(dist_to_prv <= max_time) {
+        for(int t = max_time - threadIdx.y * spacing; t >= 0; t -= spacing * blockDim.y) {
+            int prv = t - dist_to_prv;
+            if(prv >= 0) {
+                prefix_sum[t * sa_instances + iteration_id] += prefix_sum[prv * sa_instances + iteration_id];
+            }
         }
+        spacing <<= 1;
+        dist_to_prv <<= 1;
+        __syncthreads();
     }
 
     int tid = threadIdx.y;
-    tmp[iteration_id * blockDim.y + tid] = profit;
-}
-
-__device__ int check_profit_CUDA(int sa_instances, int iteration_id, int n, int max_time, int knapsack_capacity, int violation_cost, int *demand_change, item *items, bool *selected, int *tmp) {
-    int profit = 0;
-    for(int tid = 0; tid < blockDim.y; tid++) {
-        profit += tmp[iteration_id * blockDim.y + tid];
+    if(tid == 0) {
+        prefix_sum[(max_time + 1) * sa_instances + iteration_id] = prefix_sum[max_time * sa_instances + iteration_id];
+        prefix_sum[max_time * sa_instances + iteration_id] = 0;
     }
-
-    int violation_amt = 0;
-    int cur_demand = 0;
-    for(int t = 0; t <= max_time; t++) {
-        cur_demand += demand_change[t * sa_instances + iteration_id];
-        violation_amt = max(violation_amt, cur_demand - knapsack_capacity);
-    }
+    __syncthreads();
     
-    return profit - violation_amt * violation_cost;
-}
+    
+    spacing >>= 1;
+    dist_to_prv >>= 1;
+    while(spacing >= 2) {
+        for(int t = max_time - threadIdx.y * spacing; t >= 0; t -= spacing * blockDim.y) {
+            int prv = t - dist_to_prv;
+            int prv_actual_idx = prv * sa_instances + iteration_id;
+            int cur_actual_idx = t * sa_instances + iteration_id;
+            if(prv >= 0) {
+                int prv_val = prefix_sum[prv_actual_idx];
+                prefix_sum[prv_actual_idx] = prefix_sum[cur_actual_idx];
+                prefix_sum[cur_actual_idx] += prv_val;
+            }
+        }
+        spacing >>= 1;
+        dist_to_prv >>= 1;
+        __syncthreads();
+    }
 
-/*
-    Simulated annealing parameters from https://cp-algorithms.com/num_methods/simulated_annealing.html
-*/
-#define SIMULATED_ANNEALING_ITERATIONS 16000 // cp-algs suggests -log_u(T) but this can be changed
-#define SIMULATED_ANNEALING_INITIAL_TEMPERATURE 100000
-#define SIMULATED_ANNEALING_COOLING_RATE 0.995
-#define SIMULATED_ANNEALING_EXCESS_ITEM_PENALTY 10 // amount of price to subtract per excess unit demand
-#define SIMULATED_ANNEALING_INSTANCES 200
-#define WORKERS_PER_INSTANCE 128
+    __shared__ int tmp[WORKERS_PER_INSTANCE];
+    int max_violation = 0;
+    for(int t = threadIdx.y; t <= max_time + 1; t += blockDim.y) {
+        max_violation = max(max_violation, prefix_sum[t * sa_instances + iteration_id] - knapsack_capacity);
+    }
+    tmp[tid] = max_violation;
+    __syncthreads();
+    
+    if(tid == 0) {
+        for(int i = 0; i < blockDim.y; i++) {
+            max_violation = max(max_violation, tmp[i]);
+        }
+    }
+
+    return -max_violation * violation_cost;
+}
 
 int knapsack_simulated_annealing_CPP_kernel(int id, int max_time, int knapsack_capacity, vector<item> &items) {
     vector<bool> selected(items.size()), candidate_selected(items.size());
+    vector<int> demand_change(max_time + 3);
 
     uint64_t seed = id * (16 * SIMULATED_ANNEALING_ITERATIONS);
     int optimal = 0;
     int selected_count = 0, candidate_selected_count = 0;
-    int cur_profit;
+    int cur_profit = 0;
 
 
     double T = SIMULATED_ANNEALING_INITIAL_TEMPERATURE;
     for(int i = 0; i < SIMULATED_ANNEALING_ITERATIONS; i++) {
         int target = random_index(seed++, items.size());
         bool cur_val = candidate_selected[target];
+        int delta = cur_val ? -1 : +1;
         candidate_selected[target] = !candidate_selected[target];
-        candidate_selected_count += !cur_val;
-        candidate_selected_count -= cur_val;
+        candidate_selected_count += delta;
+        demand_change[items[target].l] += delta * items[target].demand;
+        demand_change[items[target].r + 1] -= delta * items[target].demand;
+        cur_profit += delta * items[target].price;
 
-        cur_profit = check_profit_CPP(max_time, knapsack_capacity, items, candidate_selected, false);
+        int adjusted_profit = cur_profit - check_profit_CPP(max_time, knapsack_capacity, demand_change, false);
 
-        double prob = exp((cur_profit-optimal)/T);
+        double prob = exp((adjusted_profit-optimal)/T);
         if(random_float(seed++) < prob) {
-            optimal = cur_profit;
+            optimal = adjusted_profit;
             selected[target] = candidate_selected[target];
             selected_count = candidate_selected_count;
         } else {
             candidate_selected[target] = selected[target];
             candidate_selected_count = selected_count;
+            demand_change[items[target].l] -= delta * items[target].demand;
+            demand_change[items[target].r + 1] += delta * items[target].demand;
+            cur_profit -= delta * items[target].price;
         }
 
         T *= SIMULATED_ANNEALING_COOLING_RATE;
@@ -192,19 +220,25 @@ int knapsack_simulated_annealing_CPP_kernel(int id, int max_time, int knapsack_c
 
     uint64_t seed2 = id * (16 * SIMULATED_ANNEALING_ITERATIONS);
     while(true) {
-        optimal = check_profit_CPP(max_time, knapsack_capacity, items, candidate_selected, true);
-        if(optimal < 0) {
+        int err = check_profit_CPP(max_time, knapsack_capacity, demand_change, true);
+        if(err < 0) {
             int item_to_remove = random_index(seed2++, items.size());
-            candidate_selected[item_to_remove] = false;
+            if(candidate_selected[item_to_remove]) {
+                candidate_selected[item_to_remove] = false;
+                
+                demand_change[items[item_to_remove].l] -= items[item_to_remove].demand;
+                demand_change[items[item_to_remove].r + 1] += items[item_to_remove].demand;
+                cur_profit -= items[item_to_remove].price;
+            }
         } else {
             break;
         }
     }
-    return optimal;
+    return cur_profit;
 }
 
 __global__
-void knapsack_simulated_annealing_CUDA_kernel(int n, int max_time, int knapsack_capacity, int violation_cost, int *demand_change, item *items, bool *selected, bool *candidate_selected, int *tmp) {
+void knapsack_simulated_annealing_CUDA_kernel(int n, int max_time, int knapsack_capacity, int violation_cost, int *demand_change, int *prefix_sum, item *items, bool *selected, bool *candidate_selected) {
     int iteration_id = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
 
@@ -212,35 +246,45 @@ void knapsack_simulated_annealing_CUDA_kernel(int n, int max_time, int knapsack_
     int optimal = 0;
     
     int selected_count = 0, candidate_selected_count = 0;
-    int cur_profit;
+    int cur_profit = 0;
 
     double T = SIMULATED_ANNEALING_INITIAL_TEMPERATURE;
     for(int i = 0; i < SIMULATED_ANNEALING_ITERATIONS; i++) {
-        int target;
+        item selected_item;
+        int target, delta;
         if(threadIdx.y == 0) {
-            target = random_index(seed++, n) * stride + iteration_id;
+            int target_itemno = random_index(seed++, n);
+            selected_item = items[target_itemno];
+            target = target_itemno * stride + iteration_id;
+
             bool cur_val = candidate_selected[target];
+            delta = cur_val ? -1 : +1;
+
             candidate_selected[target] = !candidate_selected[target];
-            candidate_selected_count += !cur_val;
-            candidate_selected_count -= cur_val;
+            candidate_selected_count += delta;
+            candidate_selected_count -= delta;
+
+            atomicAdd(&demand_change[selected_item.l       * stride + iteration_id],  delta * selected_item.demand);
+            atomicAdd(&demand_change[(selected_item.r + 1) * stride + iteration_id], -delta * selected_item.demand);
+            cur_profit += delta * selected_item.price;
         }
         __syncthreads();
 
-        check_profit_CUDA_setup(stride, iteration_id, n, max_time, knapsack_capacity, violation_cost, demand_change, items, candidate_selected, tmp);
+
+        int adjusted_profit = cur_profit + check_profit_CUDA(stride, iteration_id, n, max_time, knapsack_capacity, violation_cost, demand_change, prefix_sum, items, candidate_selected);
         __syncthreads();
-
         if(threadIdx.y == 0) {
-            cur_profit = check_profit_CUDA(stride, iteration_id, n, max_time, knapsack_capacity, violation_cost, demand_change, items, candidate_selected, tmp);
-            double prob = exp((cur_profit-optimal)/T);
-            tmp[iteration_id * blockDim.y] = random_float(seed++) < prob; // whether accept
-
-            if(tmp[iteration_id * blockDim.y]) { // whether accept
-                optimal = cur_profit;
+            double prob = exp((adjusted_profit-optimal)/T);
+            if(random_float(seed++) < prob) { // whether accept
+                optimal = adjusted_profit;
                 selected[target] = candidate_selected[target];
                 selected_count = candidate_selected_count;
             } else {
                 candidate_selected[target] = selected[target];
                 candidate_selected_count = selected_count;
+                cur_profit -= delta * selected_item.price;
+                atomicAdd(&demand_change[(selected_item.l)     * stride + iteration_id], -delta * selected_item.demand);
+                atomicAdd(&demand_change[(selected_item.r + 1) * stride + iteration_id], +delta * selected_item.demand);
             }
         }
         
@@ -310,7 +354,7 @@ int main() {
     //return;
 
     
-    int *demand_change, *tmp;
+    int *demand_change, *prefix_sum;
     item *items_cuda;
     bool *selected, *candidate_selected;
 
@@ -321,7 +365,9 @@ int main() {
     size_t instances_rounded_up = num_threads * num_blocks;
     //cout << instances_rounded_up << endl;
     cudaMalloc(&demand_change, instances_rounded_up * (max_time + 3) * sizeof(int));
-    cudaMalloc(&tmp, instances_rounded_up * workers * sizeof(int));
+    cudaMemset(demand_change, 0, instances_rounded_up * (max_time + 3) * sizeof(int));
+
+    cudaMalloc(&prefix_sum, instances_rounded_up * (max_time + 3) * sizeof(int));
 
     cudaMalloc(&selected, instances_rounded_up * n * sizeof(bool));
     cudaMemset(selected, 0, instances_rounded_up * n * sizeof(bool));
@@ -337,7 +383,7 @@ int main() {
     dim3 threads_per_block(num_threads, workers);
 
     auto start = chrono::system_clock::now();
-    knapsack_simulated_annealing_CUDA_kernel<<<num_blocks, threads_per_block>>>(n, max_time, m, violation_cost, demand_change, items_cuda, selected, candidate_selected, tmp);
+    knapsack_simulated_annealing_CUDA_kernel<<<num_blocks, threads_per_block>>>(n, max_time, m, violation_cost, demand_change, prefix_sum, items_cuda, selected, candidate_selected);
     (void)cudaDeviceSynchronize();
     
     
@@ -352,24 +398,39 @@ int main() {
         for(int j = 0; j < n; j++) {
             candidate_selected_cpu[j] = candidate_selected[j * instances_rounded_up + i];
         }
-        
-        int output;
+        vector<int> demand_change(max_time + 3);
+
+        int cur_profit = 0;
+        for(int j = 0; j < items.size(); j++) {
+            if(candidate_selected_cpu[j]) {
+                demand_change[items[j].l] += items[j].demand;
+                demand_change[items[j].r + 1] -= items[j].demand;
+                cur_profit += items[j].price;
+            }
+        }
+
         uint64_t seed2 = i * (16 * SIMULATED_ANNEALING_ITERATIONS);
         while(true) {
-            output = check_profit_CPP(max_time, m, items, candidate_selected_cpu, true);
-            if(output < 0) {
+            int err = check_profit_CPP(max_time, m, demand_change, true);
+            if(err < 0) {
                 int item_to_remove = random_index(seed2++, items.size());
-                candidate_selected_cpu[item_to_remove] = false;
+                if(candidate_selected[item_to_remove]) {
+                    candidate_selected[item_to_remove] = false;
+                    
+                    demand_change[items[item_to_remove].l] -= items[item_to_remove].demand;
+                    demand_change[items[item_to_remove].r + 1] += items[item_to_remove].demand;
+                    cur_profit -= items[item_to_remove].price;
+                }
             } else {
                 break;
             }
         }
 
-        if(true && cpu_output[i] != output) {
+        if(true && cpu_output[i] != cur_profit) {
             cout << "detected error\n";
         }
         //cout << "simulated annealing CUDA returned: " << output << endl;
-        mx = max(mx, output);
+        mx = max(mx, cur_profit);
     }
 
     auto end = chrono::system_clock::now();
