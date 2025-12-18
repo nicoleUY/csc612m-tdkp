@@ -219,9 +219,8 @@ int knapsack_simulated_annealing_CPP_kernel(int id, int max_time, int knapsack_c
     }
 
     uint64_t seed2 = id * (16 * SIMULATED_ANNEALING_ITERATIONS);
-    while(true) {
-        int err = check_profit_CPP(max_time, knapsack_capacity, demand_change, true);
-        if(err < 0) {
+    while(check_profit_CPP(max_time, max_time, demand_change, true) == -1) {
+        while(true) {
             int item_to_remove = random_index(seed2++, items.size());
             if(candidate_selected[item_to_remove]) {
                 candidate_selected[item_to_remove] = false;
@@ -229,9 +228,8 @@ int knapsack_simulated_annealing_CPP_kernel(int id, int max_time, int knapsack_c
                 demand_change[items[item_to_remove].l] -= items[item_to_remove].demand;
                 demand_change[items[item_to_remove].r + 1] += items[item_to_remove].demand;
                 cur_profit -= items[item_to_remove].price;
+                break;
             }
-        } else {
-            break;
         }
     }
     return cur_profit;
@@ -272,7 +270,6 @@ void knapsack_simulated_annealing_CUDA_kernel(int n, int max_time, int knapsack_
 
 
         int adjusted_profit = cur_profit + check_profit_CUDA(stride, iteration_id, n, max_time, knapsack_capacity, violation_cost, demand_change, prefix_sum);
-        __syncthreads();
         if(threadIdx.y == 0) {
             double prob = exp((adjusted_profit-optimal)/T);
             if(random_float(seed++) < prob) { // whether accept
@@ -410,9 +407,8 @@ int main() {
         }
 
         uint64_t seed2 = i * (16 * SIMULATED_ANNEALING_ITERATIONS);
-        while(true) {
-            int err = check_profit_CPP(max_time, m, demand_change, true);
-            if(err < 0) {
+        while(check_profit_CPP(max_time, m, demand_change, true) == -1) {
+            while(true) {
                 int item_to_remove = random_index(seed2++, items.size());
                 if(candidate_selected[item_to_remove]) {
                     candidate_selected[item_to_remove] = false;
@@ -420,9 +416,8 @@ int main() {
                     demand_change[items[item_to_remove].l] -= items[item_to_remove].demand;
                     demand_change[items[item_to_remove].r + 1] += items[item_to_remove].demand;
                     cur_profit -= items[item_to_remove].price;
+                    break;
                 }
-            } else {
-                break;
             }
         }
 
