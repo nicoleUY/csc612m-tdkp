@@ -243,7 +243,7 @@ int knapsack_simulated_annealing_CPP_kernel(int id, int max_time, int knapsack_c
     }
 
     uint64_t seed2 = id * (16 * SIMULATED_ANNEALING_ITERATIONS);
-    while(check_profit_CPP(max_time, max_time, demand_change, true) == -1) {
+    while(check_profit_CPP(max_time, knapsack_capacity, demand_change, true) == -1) {
         while(true) {
             int item_to_remove = random_index(seed2++, items.size());
             if(candidate_selected[item_to_remove]) {
